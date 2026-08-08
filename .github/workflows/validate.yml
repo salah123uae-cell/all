@@ -1,0 +1,35 @@
+name: Validate NXN
+on:
+  push:
+    branches: [nxn-clean-restore]
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Syntax and required files
+        run: |
+          python -m py_compile app.py
+          test -s templates/login.html
+          test -s templates/index.html
+          test -s static/app.js
+          test -s static/style.css
+      - name: Flask smoke test
+        run: |
+          python - <<'PY'
+          from app import app
+          c=app.test_client()
+          assert c.get('/health').status_code == 200
+          r=c.post('/login',data={'email':'manager@nxn.local'},follow_redirects=False)
+          assert r.status_code in (302,303)
+          with c.session_transaction() as s:
+              s['email']='manager@nxn.local'
+          assert c.get('/').status_code == 200
+          assert c.get('/api/dashboard').status_code == 200
+          print('NXN smoke test: OK')
+          PY
