@@ -1,0 +1,50 @@
+name: Validate NXN Clean Restore
+
+on:
+  push:
+    branches: [nxn-clean-restore]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify files
+        run: |
+          test -s app.py
+          test -s requirements.txt
+          test -s templates/index.html
+          test -s templates/login.html
+          test -s static/app.js
+          test -s static/style.css
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Python syntax
+        run: python -m py_compile app.py
+      - name: Flask smoke test
+        env:
+          SECRET_KEY: ci-test-key
+          NXN_DB_PATH: /tmp/nxn-ci.db
+        run: |
+          python - <<'PY'
+          from app import app
+          c = app.test_client()
+          r = c.get('/health')
+          assert r.status_code == 200, r.status_code
+          assert r.get_json()['status'] == 'ok'
+          r = c.get('/login')
+          assert r.status_code == 200, r.status_code
+          r = c.post('/login', data={'email':'manager@nxn.local'}, follow_redirects=False)
+          assert r.status_code in (302,303), r.status_code
+          with c.session_transaction() as s:
+              s['email'] = 'manager@nxn.local'
+          r = c.get('/api/dashboard')
+          assert r.status_code == 200, r.status_code
+          data = r.get_json()
+          assert data['kpis']['branches'] >= 1
+          print('NXN smoke test: OK')
+          PY
