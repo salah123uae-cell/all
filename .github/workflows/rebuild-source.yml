@@ -1,12 +1,11 @@
-name: Rebuild NXN source
+name: Rebuild and validate NXN source
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - nxn-source-backup
+    branches: [nxn-source-backup]
     paths:
-      - 'rebuild_chunks/**'
+      - 'source_chunks/**'
       - '.github/workflows/rebuild-source.yml'
 
 permissions:
@@ -19,35 +18,49 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: nxn-source-backup
-      - name: Rebuild source files from chunks
+
+      - name: Rebuild original ZIP
         shell: bash
         run: |
           set -euo pipefail
-          rebuild_file() {
-            local dir="$1"
-            local out="$2"
-            [ -d "$dir" ] || return 0
-            mkdir -p "$(dirname "$out")"
-            : > "$out"
-            for f in "$dir"/chunk_*.b64; do
-              [ -e "$f" ] || continue
-              base64 -d "$f" >> "$out"
-            done
-          }
-          rebuild_file rebuild_chunks/app app.py
-          rebuild_file rebuild_chunks/app_js static/app.js
-          rebuild_file rebuild_chunks/style_css static/style.css
-          python -m py_compile app.py
+          cat source_chunks/chunk_*.b64 | base64 -d > /tmp/nxn-source.zip
+          unzip -t /tmp/nxn-source.zip
+          rm -rf /tmp/nxn-extract
+          mkdir -p /tmp/nxn-extract
+          unzip -q /tmp/nxn-source.zip -d /tmp/nxn-extract
+          cp -a /tmp/nxn-extract/. ./
+
+      - name: Validate project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s app.py
           test -s static/app.js
           test -s static/style.css
-      - name: Commit reconstructed source
+          test -s templates/login.html
+          test -s templates/index.html
+          test -s requirements.txt
+          python -m py_compile app.py
+          python - <<'PY'
+          import ast, pathlib
+          p = pathlib.Path('app.py')
+          ast.parse(p.read_text(encoding='utf-8'))
+          print('Python syntax: OK')
+          for f in ['static/app.js','static/style.css','templates/login.html','templates/index.html']:
+              q=pathlib.Path(f)
+              print(f, q.stat().st_size, 'bytes')
+          PY
+
+      - name: Commit validated source
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app.py static/app.js static/style.css
+          git add app.py requirements.txt README.md static templates
           if git diff --cached --quiet; then
-            echo "No source changes to commit"
+            echo "Validated source already matches repository"
           else
-            git commit -m "Reconstruct NXN runtime source"
+            git commit -m "Rebuild validated NXN source from archive"
             git push origin nxn-source-backup
           fi
