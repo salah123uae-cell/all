@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NXN Branch Audit</title><link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}"></head>
+<body><header><div><div class="brand">nxn</div><small>National x Network</small></div><div class="header-actions"><span>{{ user.name }} • {{ user.role }}</span><form method="post" action="/logout"><button>خروج</button></form></div></header>
+<main><section class="hero"><div><p class="eyebrow">NXN BRANCH AUDIT</p><h1>لوحة تدقيق الفروع</h1><p>متابعة الفروع، نتائج التدقيق، وحالة الامتثال من شاشة واحدة.</p></div><button class="primary" id="refresh">تحديث البيانات</button></section><section id="kpis" class="kpis"></section><section class="grid"><article class="panel"><h2>الفروع</h2><div id="branches"></div></article><article class="panel"><h2>آخر عمليات التدقيق</h2><div id="audits"></div></article></section></main>
+<script src="{{ url_for('static',filename='app.js') }}"></script></body></html>
