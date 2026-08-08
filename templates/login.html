@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NXN Secure Access</title><link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}"></head>
+<body class="login-page">
+<main class="login-wrap"><section class="login-card"><div class="brand">nxn</div><small>National x Network</small><h1>تسجيل الدخول</h1><p>اختر حساباً للدخول إلى نظام تدقيق الفروع.</p>{% if error %}<div class="error">{{ error }}</div>{% endif %}<form method="post"><select name="email"><option value="manager@nxn.local">Salah — System Manager</option><option value="auditor@nxn.local">NXN Auditor — Auditor</option><option value="branch@nxn.local">Branch Manager — Branch</option></select><button class="primary" type="submit">دخول</button></form><div class="legal">NXN Branch Audit • Python Edition</div></section></main>
+</body></html>
