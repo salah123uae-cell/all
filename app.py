@@ -12,18 +12,27 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
+DATABASE_URL = os.getenv('DATABASE_URL', '').strip()
 DB = Path(os.getenv('NXN_DB_PATH', BASE / 'nxn_audit.db'))
 SESSIONS: dict[str, str] = {}
 
-
-def conn():
-    c = sqlite3.connect(DB)
-    c.row_factory = sqlite3.Row
-    c.execute('PRAGMA foreign_keys=ON')
-    return c
+if DATABASE_URL:
+    from db_postgres import conn
+    from psycopg import IntegrityError as DatabaseIntegrityError
+else:
+    DatabaseIntegrityError = sqlite3.IntegrityError
+    def conn():
+        c = sqlite3.connect(DB)
+        c.row_factory = sqlite3.Row
+        c.execute('PRAGMA foreign_keys=ON')
+        return c
 
 
 def init_db():
+    if DATABASE_URL:
+        with conn() as c:
+            c.execute('SELECT 1 FROM branches LIMIT 1').fetchone()
+        return
     with conn() as c:
         c.executescript('''
         CREATE TABLE IF NOT EXISTS branches(
@@ -132,7 +141,7 @@ def init_db():
             ])
 
 
-def recalc_score(c: sqlite3.Connection, audit_id: int):
+def recalc_score(c, audit_id: int):
     rows = c.execute('''
       SELECT q.weight,a.answer FROM audit_answers a
       JOIN audit_questions q ON q.id=a.question_id
@@ -232,7 +241,7 @@ class H(BaseHTTPRequestHandler):
             typ = 'text/css' if f.suffix == '.css' else 'application/javascript' if f.suffix == '.js' else 'application/octet-stream'
             return self.send_bytes(f.read_bytes(), typ)
         if p == '/health':
-            return self.send_json({'status': 'ok', 'version': 2, 'database': str(DB)})
+            return self.send_json({'status': 'ok', 'version': 2, 'database': 'supabase-postgres' if DATABASE_URL else str(DB)})
         if p == '/login':
             return self.send_text(LOGIN_HTML)
         if p == '/':
@@ -407,7 +416,7 @@ class H(BaseHTTPRequestHandler):
                 with conn() as c:
                     cur=c.execute('INSERT INTO users(email,name,role,branch_id) VALUES(?,?,?,?)',(d['email'].strip().lower(),d['name'].strip(),role,branch_id))
                     r=c.execute('SELECT * FROM users WHERE id=?',(cur.lastrowid,)).fetchone()
-            except sqlite3.IntegrityError: return self.send_json({'error':'email_exists'},409)
+            except DatabaseIntegrityError: return self.send_json({'error':'email_exists'},409)
             return self.send_json(dict(r),201)
         if p.endswith('/answers') and p.startswith('/api/audits/'):
             u=self.need_user()
