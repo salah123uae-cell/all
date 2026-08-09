@@ -1,7 +1,7 @@
-name: Validate NXN
+name: Validate NXN Production Source
 on:
   push:
-    branches: [nxn-clean-restore]
+    branches: [main]
   workflow_dispatch:
 jobs:
   validate:
@@ -11,25 +11,34 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -r requirements.txt
-      - name: Syntax and required files
+      - name: Verify required files
         run: |
-          python -m py_compile app.py
+          test -s app.py
+          test -s api/index.py
           test -s templates/login.html
           test -s templates/index.html
           test -s static/app.js
           test -s static/style.css
-      - name: Flask smoke test
+          test -s vercel.json
+      - name: Python syntax
+        run: |
+          python -m py_compile app.py
+          python -m py_compile api/index.py
+      - name: Database and import smoke test
+        env:
+          NXN_DB_PATH: /tmp/nxn-ci.db
         run: |
           python - <<'PY'
-          from app import app
-          c=app.test_client()
-          assert c.get('/health').status_code == 200
-          r=c.post('/login',data={'email':'manager@nxn.local'},follow_redirects=False)
-          assert r.status_code in (302,303)
-          with c.session_transaction() as s:
-              s['email']='manager@nxn.local'
-          assert c.get('/').status_code == 200
-          assert c.get('/api/dashboard').status_code == 200
-          print('NXN smoke test: OK')
+          import os, sqlite3
+          os.environ['NXN_DB_PATH']='/tmp/nxn-ci.db'
+          import app
+          app.init_db()
+          with app.conn() as c:
+              assert c.execute('select count(*) from branches').fetchone()[0] >= 1
+              assert c.execute('select count(*) from users').fetchone()[0] >= 1
+              assert c.execute('select count(*) from audit_sections').fetchone()[0] >= 1
+              assert c.execute('select count(*) from audit_questions').fetchone()[0] >= 1
+          import api.index as entry
+          assert entry.handler is app.H
+          print('NXN production source smoke test: OK')
           PY
