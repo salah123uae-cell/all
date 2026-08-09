@@ -1,0 +1,47 @@
+name: Enable Supabase PostgreSQL
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/enable-supabase.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch app for PostgreSQL
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app.py')
+          s=p.read_text(encoding='utf-8')
+          old="""BASE = Path(__file__).resolve().parent\nDB = Path(os.getenv('NXN_DB_PATH', BASE / 'nxn_audit.db'))\nSESSIONS: dict[str, str] = {}\n\n\ndef conn():\n    c = sqlite3.connect(DB)\n    c.row_factory = sqlite3.Row\n    c.execute('PRAGMA foreign_keys=ON')\n    return c\n"""
+          new="""BASE = Path(__file__).resolve().parent\nDATABASE_URL = os.getenv('DATABASE_URL', '').strip()\nDB = Path(os.getenv('NXN_DB_PATH', BASE / 'nxn_audit.db'))\nSESSIONS: dict[str, str] = {}\n\nif DATABASE_URL:\n    from db_postgres import conn\n    from psycopg import IntegrityError as DatabaseIntegrityError\nelse:\n    DatabaseIntegrityError = sqlite3.IntegrityError\n    def conn():\n        c = sqlite3.connect(DB)\n        c.row_factory = sqlite3.Row\n        c.execute('PRAGMA foreign_keys=ON')\n        return c\n"""
+          if old not in s:
+              raise SystemExit('connection block not found')
+          s=s.replace(old,new,1)
+          s=s.replace("def init_db():\n    with conn() as c:\n        c.executescript('''", "def init_db():\n    if DATABASE_URL:\n        with conn() as c:\n            c.execute('SELECT 1 FROM branches LIMIT 1').fetchone()\n        return\n    with conn() as c:\n        c.executescript('''",1)
+          s=s.replace('def recalc_score(c: sqlite3.Connection, audit_id: int):','def recalc_score(c, audit_id: int):',1)
+          s=s.replace('except sqlite3.IntegrityError:', 'except DatabaseIntegrityError:',1)
+          s=s.replace("return self.send_json({'status': 'ok', 'version': 2, 'database': str(DB)})", "return self.send_json({'status': 'ok', 'version': 2, 'database': 'supabase-postgres' if DATABASE_URL else str(DB)})",1)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Verify syntax
+        run: |
+          python -m py_compile app.py db_postgres.py api/index.py
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Switch NXN runtime to Supabase PostgreSQL when DATABASE_URL is set"
+            git push origin main
+          fi
